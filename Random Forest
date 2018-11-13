@@ -1,1 +1,150 @@
-teste
+# Data Load of vibration values
+df = sqlContext.read.format("com.databricks.spark.csv").options(header=True, inferSchema=True, delimiter=";").load("/FileStore/tables/2017_2018_v1.csv")
+monitor = df
+df.count()
+
+# Replacing ./, in the training dataset and gruping the data per date
+from pyspark.sql.types import FloatType
+import datetime
+from pyspark.sql.functions import year, month, dayofmonth
+from pyspark.sql.functions import split
+
+comma2Dot2 = udf(lambda x : float(str(x).replace(',', '.')), FloatType())
+monitor2 = monitor.withColumn('Value',comma2Dot2(monitor.Value))
+split_col = split(monitor2['Date'], '/')
+monitor2 = monitor2.withColumn('Day', split_col.getItem(0)).withColumn('Month', split_col.getItem(1)).withColumn('Year', split_col.getItem(2))
+monitor2 = monitor2.filter(monitor2.Year == 2018)
+monitor2 = monitor2.select("Month", "Value").groupBy('Month').mean()
+oldColumnss = monitor2.schema.names
+newColumnss = ["Month_2018", "Avg"]
+monitor2 = reduce(lambda monitor2, idx: monitor2.withColumnRenamed(oldColumnss[idx], newColumnss[idx]), xrange(len(oldColumnss)), monitor2)
+monitor2 = monitor2.orderBy(monitor2.Month_2018.desc())
+display(monitor2)
+
+# Verifying how imbalanced is the classes analyzed
+display(df.groupBy('Risk').count())
+
+# Seting the target as the number of registers of the intermidiate class
+target = float((df.select("Date", "Time", "Value", "Risk").filter(df.Risk == "Yellow")).count())
+
+# Treating the class "NO RISK"
+norisk = df.select("*").filter(df.Risk == "no risk")
+count_norisk = float(df.select("*").filter(df.Risk == "no risk").count())
+result = (round(target/count_norisk*100))
+weights = [(100-result)/100, result/100]
+seed = 13579
+resto, resample = norisk.randomSplit(weights, seed)
+resto.cache()
+resample.cache()
+
+# Treating the class "RED"
+red = df.select("*").filter(df.Risk == "Red")
+count_red = float(df.select("*").filter(df.Risk == "Red").count())
+result = int(round(target/count_red))
+
+# Balancing the class "RED"
+from pyspark.sql import SQLContext
+import pandas as pd
+import numpy as np
+minority_ini = pd.DataFrame(np.array((df.select("*").filter(df.Risk == "Red")).collect()))
+minority = pd.DataFrame(np.array((df.select("*").filter(df.Risk == "Red")).collect()))
+for i in range(1,result):
+  minority = pd.concat([minority, minority_ini])
+  
+# Concatenating all balanced classes into a pandas dataframe
+minority = minority #red - already in pandas
+yellow = pd.DataFrame(np.array((df.select("*").filter(df.Risk == "Yellow")).collect()))
+norisk_ = pd.DataFrame(np.array((resample.select("*").collect())))
+df_final = pd.concat([minority, yellow, norisk_])
+
+# Converting the pandas dataframe into a pyspark dataframe
+df_final = sqlContext.createDataFrame(df_final)
+df_final.show()
+  
+# Changing columns names
+oldColumns = df_final.schema.names
+newColumns = ["Date", "Time", "Value", "Average", "Risk"]
+df = reduce(lambda df_final, idx: df_final.withColumnRenamed(oldColumns[idx], newColumns[idx]), xrange(len(oldColumns)), df_final)
+df.printSchema()
+df.show() 
+
+# Choosing the necessary data
+new_df = df.select("Value", "Risk")
+display(new_df)
+ 
+# Transforming lables into numbers to facilitate interpretation of the classification
+from pyspark.sql.functions import col, trim
+def replace(row):
+  return row.replace("no risk", "1").replace("Yellow", "2").replace("Red", "3")
+u_replace = udf(replace)
+col_names = new_df.columns
+for x in col_names:
+  new_df = new_df.withColumn(x, trim(u_replace(col(x))))
+display(new_df)
+  
+# Replacing ,/.
+from pyspark.sql.types import FloatType
+comma2Dot = udf(lambda x : float(str(x).replace(',', '.')), FloatType())
+new_df=new_df.withColumn('Value',comma2Dot(new_df.Value))
+display(new_df)
+  
+# Checking the balanced data
+display(new_df.groupBy('Risk').count())
+
+#Convertings fields into float type
+new_df = new_df.select(new_df['*'], new_df.Risk.cast('float').alias("label"))  
+new_df = new_df.select("Value", "label")
+new_df.printSchema()
+  
+# Creation of features for the inductor
+from pyspark.ml import Pipeline
+from pyspark.ml.feature import StringIndexer, VectorIndexer, VectorAssembler, SQLTransformer
+column_vec_in = new_df.columns[0:1]
+column_vec_in 
+column_vec_out = [i for i in new_df.columns[0:1]]
+assembler_features = VectorAssembler(inputCols=column_vec_out, outputCol='features') 
+instance = [assembler_features]
+pipeline = Pipeline(stages=instance)  
+
+# Making the transformation
+complete_df = pipeline.fit(new_df).transform(new_df)
+  
+# Dividing the data into trainning and test
+weights = [0.8, 0.2]
+seed = 13579
+training_df, test_df = complete_df.randomSplit(weights, seed)
+training_df.cache()
+test_df.cache()
+  
+# Generating the Random Forest model
+from pyspark.ml.classification import RandomForestClassifier
+rf = RandomForestClassifier(labelCol='label', featuresCol='features', numTrees=3, 
+                            featureSubsetStrategy="auto", impurity="gini", maxDepth=4, maxBins=32, seed=seed)
+fit = rf.fit(training_df)
+fit.featureImportances
+  
+# Transforming test data
+transformed = fit.transform(test_df)
+display(transformed)
+  
+# Metrics for model evaluation
+from pyspark.mllib.evaluation import BinaryClassificationMetrics as metric
+results_rfc = transformed.select(['probability', 'label'])
+results_collect = results_rfc.collect()
+from pyspark.ml.evaluation import MulticlassClassificationEvaluator
+predAndLabel = transformed.select(['prediction', 'label'])
+accuracy = MulticlassClassificationEvaluator(metricName="accuracy")
+f1_score = MulticlassClassificationEvaluator(metricName="f1")
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
