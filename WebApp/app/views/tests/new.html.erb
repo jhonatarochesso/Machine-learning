@@ -1,0 +1,21 @@
+<h1>New Test</h1>
+<%= form_with scope: :test, url: tests_path,local: true do |form| %>
+	<p>
+		<%= form.label :title %><br>
+		<%= form.text_field :title %>
+	</p>
+ 
+ 	<p>
+ 		<%= form.label :date %><br>
+ 		<%= form.datetime_field :date %>
+ 	</p>
+
+ 	<p>
+ 		<%= form.label :observation %><br>
+ 		<%= form.text_area :observation %>
+ 	</p>
+
+ 	<p>
+ 		<%= form.submit %>
+ 	</p>
+<% end %>
