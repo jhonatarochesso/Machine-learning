@@ -4,4 +4,6 @@ Rails.application.routes.draw do
 	resources :tests
 
 	root 'welcome#index'
+
+	get 'tests/start_analisys/:test_id' => 'tests#start_analisys', as: 'test_start_analisys'
 end

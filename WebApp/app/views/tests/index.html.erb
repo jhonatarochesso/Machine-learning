@@ -1,0 +1,18 @@
+<h1>Listing tests</h1>
+ 
+<table>
+	<tr>
+		<th>Title</th>
+		<th>Date</th>
+		<th></th>
+	</tr>
+
+	<% @tests.each do |test| %>
+		<tr>
+			<td><%= test.title %></td>
+			<td><%= test.date %></td>
+			<td><%= link_to "Start analisys", test_start_analisys_path(test) %></td>
+			<td><%= link_to 'Show', test_path(test) %></td>
+		</tr>
+	<% end %>
+</table>

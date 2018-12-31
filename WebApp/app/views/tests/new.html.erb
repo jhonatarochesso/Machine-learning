@@ -11,6 +11,11 @@
  	</p>
 
  	<p>
+ 		<%= form.label :vibration_file, "File" %><br>
+ 		<%= form.file_field :vibration_file, multiple: true %>
+ 	</p>
+
+ 	<p>
  		<%= form.label :observation %><br>
  		<%= form.text_area :observation %>
  	</p>
